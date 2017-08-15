@@ -1,0 +1,32 @@
+.App {
+  text-align: center;
+}
+a{
+  text-decoration: none;
+  
+}
+#navBar a{
+  color: #abcdef;
+}
+#navBar{
+  font-size: 20px;
+  color: #abcdef;
+  display: flex;
+  display: -webkit-flex;
+  justify-content: space-around;
+  -webkit-justify-content:space-around;
+  height: 50px;
+  line-height: 50px;
+  background: #e0e0e0;
+}
+#navBar:after{
+  content:"";
+  position: absolute;
+  height: 30px;
+  top: 10px;
+  width: 1px;
+  background: #f0f0f0
+}
+#content{
+  background: #FFF;
+}
