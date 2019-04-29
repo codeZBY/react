@@ -1,320 +1,307 @@
-import React, { Component, useState, useEffect, createRef } from 'react'
-import { createPortal, findDOMNode } from 'react-dom'
+import React, { useRef, useState, useEffect, useReducer } from 'react'
+import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
 import cx from 'classnames'
 
 import Utils from '../../utils/utils'
 
-const legendRoot = document.querySelector('#charting3')
-export default class Legend extends Component {
-  static defaultProps = {
-    lengendContainer: {
-      container: legendRoot,
-      boundary: {
-        width: 1000,
-        height: 400
-      }
-    },
-    positionInfo: {
-      top: 0,
-      left: 0,
-      width: 'auto',
-      height: 'auto'
-    },
-    width: {
-      legendWidth: 'auto',
-      statsWidth: 'auto',
-      lastTextWidth: 'auto',
-      minTextWidth: 'auto',
-      maxTextWidth: 'auto',
-      meanTextWidth: 'auto',
-      sdTextWidth: 'auto',
-      lzTextWidth: 'auto',
-      lpTextWidth: 'auto'
-    },
-    textArr: [
-      {
-        color: "#007377",
-        last: "Last:1114 on 16/04/2019",
-        legend: "USD.AED, FX Spot",
-        lp: "asd df gh",
-        lz: "qw sdf ggg",
-        max: "Max: 4 on 09/02/2019",
-        mean: "Mean: 4",
-        min: "Min: 4 on 29/03/2019",
-        sd: "Std. Dev.: 0",
-      },
-      {
-        color: "#C99700",
-        last: "Last: 2 on 16/04/2019",
-        legend: "15Y FNMA 102 Current Coupon, Basis Live",
-        lp: "Percentile: 7",
-        lz: "Z-Score: -1",
-        max: "Max: 2 on 06/03/2019",
-        mean: "Mean: 2",
-        min: "Min: 2 on 03/04/2018",
-        sd: "Std. Dev.: 0"
-      }
-    ]
+function reducer(state, action) {
+  switch (action.type) {
+    case 'mouseAction':
+      return { ...state, positionInfo: action.positionInfo }
+      break
+    default:
+      return state
   }
+}
 
-  static propTypes = {
-    textArr: PropTypes.arrayOf(
-      PropTypes.shape({
-        color: PropTypes.string,
-        last: PropTypes.string,
-        legend: PropTypes.string,
-        lp: PropTypes.string,
-        lz: PropTypes.string,
-        max: PropTypes.string,
-        mean: PropTypes.string,
-        min: PropTypes.string,
-        sd: PropTypes.string
-      })
-    ),
-    lengendContainer: PropTypes.shape({
-      boundary: PropTypes.shape({
-        width: PropTypes.number,
-        height: PropTypes.number
-      }).isRequired
-    }),
-    positionInfo: PropTypes.shape({
-      top: PropTypes.number,
-      left: PropTypes.number,
-      width: PropTypes.oneOf('auto', PropTypes.number),
-      height: PropTypes.oneOf('auto', PropTypes.number)
-    }),
-    width: PropTypes.shape({
-      legendWidth: PropTypes.oneOf('auto', PropTypes.number),
-      statsWidth: PropTypes.oneOf('auto', PropTypes.number),
-      lastTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      minTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      maxTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      meanTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      sdTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      lzTextWidth: PropTypes.oneOf('auto', PropTypes.number),
-      lpTextWidth: PropTypes.oneOf('auto', PropTypes.number)
-    })
-  }
-
-  constructor(props) {
-    super(props)
-
-    this.state = this.props
-
-    this.legend = createRef()
-    this.dragEl = createRef()
-    this.legendEl = createRef()
-    this.closeLegend = this.closeLegend.bind(this)
-    this.handleOnLegend = this.handleOnLegend.bind(this)
-    this.formatLegendWidth = this.formatLegendWidth.bind(this)
-    this.getElMaxMinWidth = this.getElMaxMinWidth.bind(this)
-    this.container = document.createElement('div')
-    this.container.className = 'legend__container'
-  }
-
-  componentWillUnMount() {
-    this.container.removeChild(this.legend.current)
-  }
-
-  componentDidMount() {
-    legendRoot.appendChild(this.container)
-
-    setTimeout(() => {
-      this.formatLegendWidth(this.state.textArr)
-    }, 60);
-
-  }
-
-  closeLegend() {
-    this.container.removeChild(this.legend.current)
-  }
-
-  handleOnLegend(e) {
+function Legend(props) {
+  const { savePosInfo, legendContainer, className, textArr } = props,
+    legend = useRef(null),
+    dragEl = useRef(null),
+    [width, setWidth] = useState(props.width),
+    [renderEnd, setRenderEnd] = useState(false), // the first time render shouldn't limit <div className='legend'></div> style, need get the integral width of childNode
+    [showLegend, setLegend] = useState(true),
+    [statsWidArr] = useState([]),
+    [calcResult] = useState({}),
+    [{ positionInfo }, dispatch] = useReducer(reducer, props)
+  let draging = false
+  const handleOnEle = e => {
+    e.nativeEvent.preventDefault()
     e.stopPropagation()
-
-    let positionInfo = this.state.positionInfo,
-      left = positionInfo.left,
-      top = positionInfo.top,
-      isDrag = e.currentTarget === this.dragEl.current,
-      width = parseInt(/\d+/.exec(getComputedStyle(isDrag ? this.legend.current : e.currentTarget).width)),
-      height = parseInt(/\d+/.exec(getComputedStyle(isDrag ? this.legend.current : e.currentTarget).height)),
+    e.persist()
+    let { left, top } = positionInfo,
+      isDrag = e.currentTarget === dragEl.current,
+      width = parseInt(/\d+/.exec(Utils.getTrueStyle(legend.current, 'width'))),
+      height = parseInt(/\d+/.exec(Utils.getTrueStyle(legend.current, 'height'))),
       pageX = e.pageX,
       pageY = e.pageY,
-      boundary = this.props.lengendContainer.boundary
+      boundary = legendContainer.boundary,
+      newPosInfo = positionInfo
 
     let handling = e => {
       e.stopPropagation()
+      draging = true
       let curPageX = e.pageX,
         curPageY = e.pageY,
         diffLOW = curPageX - pageX,
         diffTOH = curPageY - pageY
-
-      this.updateStyle(
-        isDrag ? {
-          top: top,
+      newPosInfo = isDrag ?
+        {
           left: left,
           top: top,
           width: Math.min(width + diffLOW, boundary.width - left),
           height: Math.min(height + diffTOH, boundary.height - top)
         } : {
-            left: left + diffLOW + width >= boundary.width ? boundary.width - width : Math.max(0, left + diffLOW),
-            top: top + diffTOH + height >= boundary.height ? boundary.height - height : Math.max(0, top + diffTOH),
-            width: width,
-            height: height
-          }
-      )
+          left: left + diffLOW + width >= boundary.width ? boundary.width - width : Math.max(0, left + diffLOW),
+          top: top + diffTOH + height >= boundary.height ? boundary.height - height : Math.max(0, top + diffTOH),
+          width: width,
+          height: height
+        }
+      return dispatch({
+        type: 'mouseAction',
+        positionInfo: newPosInfo
+      })
     }
 
     let handleEnd = e => {
+      e.stopPropagation()
       document.removeEventListener('mousemove', handling)
       document.removeEventListener('mouseup', handleEnd)
-      this.props.savePosInfo && this.props.savePosInfo(this.state.positionInfo)
+      if (draging) {
+        savePosInfo && savePosInfo(newPosInfo)
+        draging = false
+      }
     }
 
     document.addEventListener('mousemove', handling, false)
     document.addEventListener('mouseup', handleEnd, false)
   }
 
-  updateStyle(newInfo) {
-    this.setState({
-      positionInfo: newInfo
+  useEffect(() => {
+    // get all stats width, then calculate the max width
+    statsWidArr.map(arr => {
+      arr.map(a => {
+        if (!calcResult[Object.keys(a)]) {
+          calcResult[Object.keys(a)] = Object.values(a)
+        } else {
+          calcResult[Object.keys(a)].push(Object.values(a)[0])
+        }
+      })
     })
+
+    let resultKeys = Object.keys(calcResult),
+      statsWidth = 0
+    resultKeys.map(key => {
+      let maxWidth = Math.max(...calcResult[key])
+      calcResult[key] = maxWidth + 4 // + more 4 px is used to set between space(Max: 2), if not add, will be Max:2
+      statsWidth += maxWidth
+    })
+    setWidth(Object.assign({}, width, calcResult, { statsWidth: statsWidth }))
+    setRenderEnd(true)
+  }, [])
+
+  function collectLegendWidth(w) {
+    statsWidArr.push(w)
   }
 
-  formatLegendWidth(textArr) {
-    if (textArr.length) {
-      let legend = [...document.getElementsByClassName('legend__content--text-legend')],
-        statsBox = [...document.getElementsByClassName('legend__stats')],
-        width = this.state.width,
-        legendWidth = this.getElMaxMinWidth(legend) + 2,
-        statsWidth
+  function closeLegend() {
+    setLegend(false)
+    props.setLegend && props.setLegend(false)
+  }
 
-      this.setState({
-        width: Object.assign({}, width, {
-          "legendWidth": legendWidth
-        })
-      })
-      let index = 0
+  useEffect(() => {
+    legendContainer.container.appendChild(legend.current)
+    return () => {
+      legendContainer.container.removeChild(legend.current)
+    }
+  }, [legend])
 
-      while (true) {
-        let eles = statsBox.map(stats => {
-          if (stats.getElementsByClassName('legend__stats--text')[index]) {
-            return stats.getElementsByClassName('legend__stats--text')[index]
-          }
-        })
-
-        if (!eles.length || eles.includes(undefined)) {
-          break
-        }
-
-        let max = this.getElMaxMinWidth(eles),
-          type = eles[0].getAttribute('data-type') + 'TextWidth'
-
-        this.setState({
-          width: Object.assign({}, width, {
-            [`${type}`]: max + 4
-          })
-        })
-
-        index += 1
-      }
-
-      statsWidth = this.getElMaxMinWidth(statsBox)
-
-      this.setState({
-        width: Object.assign({}, width, {
-          statsWidth: statsWidth
-        })
+  return createPortal(showLegend && <div className={cx('legend', className)} ref={legend} onMouseDown={e => handleOnEle(e)} style={renderEnd ? {
+    width: positionInfo.width,
+    height: positionInfo.height,
+    top: positionInfo.top,
+    left: positionInfo.left,
+    maxWidth: legendContainer.boundary.width - positionInfo.left,
+    maxHeight: legendContainer.boundary.height - positionInfo.top
+  } : {}}>
+    <div className='legend__close-icon' onMouseDown={e => {
+      e.stopPropagation()
+      closeLegend(false)
+    }}></div>
+    <div className='legend__resize-icon' ref={dragEl} onMouseDown={e => handleOnEle(e)}></div>
+    {
+      textArr.map((option, index) => {
+        return <LegendContent key={index} {...Object.assign(option, { width: width }, { collectLegendWidth: collectLegendWidth }) } />
       })
     }
-  }
-
-  getElMaxMinWidth(element) {
-    return Math.max(...element.map((ele, idx) => {
-      let marginLeft = parseInt(/\d+/.exec(Utils.getTrueStyle(ele, 'marginLeft'))),
-        marginRight = parseInt(/\d+/.exec(Utils.getTrueStyle(ele, 'marginRight'))),
-        offsetWidth = ele.offsetWidth
-
-      return marginLeft + offsetWidth + marginRight
-    }))
-  }
-
-  render() {
-    let { textArr, lengendContainer, className } = this.props,
-      { positionInfo, width } = this.state
-
-    return createPortal(
-      <div className={cx('legend', className)} onMouseDown={this.handleOnLegend} ref={this.legend} style={{
-        width: positionInfo.width,
-        height: positionInfo.height,
-        top: positionInfo.top,
-        left: positionInfo.left,
-        maxWidth: lengendContainer.boundary.width - positionInfo.left,
-        maxHeight: lengendContainer.boundary.height - positionInfo.top
-      }}>
-        <div className='legend__close-icon' onClick={this.closeLegend}></div>
-        <div className='legend__resize-icon' onMouseDown={this.handleOnLegend} ref={this.dragEl}></div>
-        {
-          textArr.map((option, index) => {
-            return <div className='legend__content'>
-              <span className='legend__content--rect' style={{
-                backgroundColor: option.color
-              }}></span>
-              <span className='legend__content--text-legend' style={{
-                width: width.legendWidth
-              }}>
-                {option.legend}
-              </span>
-              <div className='legend__stats' style={{
-                width: width.statsWidth
-              }}>
-                <div className='legend__stats--text' data-type='last' style={{
-                  width: width.lastTextWidth
-                }}>
-                  <span>{option.last && (option.last.split(':')[0] + (option.last ? ':' : ''))}</span>
-                  <span>{option.last && (option.last.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='min' style={{
-                  width: width.minTextWidth
-                }}>
-                  <span>{option.min && (option.min.split(':')[0] + (option.min ? ':' : ''))}</span>
-                  <span>{option.min && (option.min.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='max' style={{
-                  width: width.maxTextWidth
-                }}>
-                  <span>{option.max && (option.max.split(':')[0] + (option.max ? ':' : ''))}</span>
-                  <span>{option.max && (option.max.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='mean' style={{
-                  width: width.meanTextWidth
-                }}>
-                  <span>{option.mean && (option.mean.split(':')[0] + (option.mean ? ':' : ''))}</span>
-                  <span>{option.mean && (option.mean.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='sd' style={{
-                  width: width.sdTextWidth
-                }}>
-                  <span>{option.sd && (option.sd.split(':')[0] + (option.sd ? ':' : ''))}</span>
-                  <span>{option.sd && (option.sd.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='lz' style={{
-                  width: width.lzTextWidth
-                }}>
-                  <span>{option.lz && (option.lz.split(':')[0] + (option.lz ? ':' : ''))}</span>
-                  <span>{option.lz && (option.lz.split(':').slice(1).join(':'))}</span>
-                </div>
-                <div className='legend__stats--text' data-type='lp' style={{
-                  width: width.lpTextWidth
-                }}>
-                  <span>{option.lp && (option.lp.split(':')[0] + (option.lp ? ':' : ''))}</span>
-                  <span>{option.lp && (option.lp.split(':').slice(1).join(':'))}</span>
-                </div>
-              </div>
-            </div>
-          })
-        }
-      </div>, this.container)
-  }
+  </div>, legendContainer.container)
 }
+
+function LegendContent(props) {
+  const { stats, color, legend, collectLegendWidth } = props,
+    [statsWidArr] = useState([]),
+    legendEle = useRef(null)
+
+  useEffect(() => {
+    statsWidArr.push({ legendWidth: getWidth(legendEle.current) + 2 })
+    collectLegendWidth(statsWidArr)
+  }, [])
+
+  function collectiStatsWidth(w) {
+    statsWidArr.push(w)
+  }
+
+  return <div className='legend__content'>
+    <span className='legend__content--rect' style={{
+      backgroundColor: color
+    }}></span>
+    <span className='legend__content--text-legend' ref={legendEle} style={{
+      width: props.width.legendWidth
+    }}>
+      {legend}
+    </span>
+    <div className='legend__stats' style={{
+      width: props.width.statsWidth
+    }}>
+      {
+        Object.keys(stats).map((s, i) => {
+          return <LegendStats key={i} {...{
+            statsText: stats[s],
+            typeWidth: props.width[`${s}Width`],
+            statsType: s,
+            collectWidth: collectiStatsWidth
+          }} />
+        })
+      }
+    </div>
+  </div>
+}
+
+function LegendStats(props) {
+  const stats = useRef(null),
+    { statsType, statsText, collectWidth } = props
+
+  useEffect(() => {
+    collectWidth({ [`${statsType}Width`]: getWidth(stats.current) })
+  }, [])
+
+  return <div className='legend__stats--text' ref={stats} style={{
+    width: props.typeWidth
+  }}>
+    <span>{statsText && (statsText.split(':')[0] + (statsText ? ':' : ''))}</span>
+    <span>{statsText && (statsText.split(':').slice(1).join(':'))}</span>
+  </div>
+}
+
+function getWidth(el) {
+  if (!el) return null
+
+  let marginLeft = parseInt(/\d+/.exec(Utils.getTrueStyle(el, 'marginLeft'))),
+    marginRight = parseInt(/\d+/.exec(Utils.getTrueStyle(el, 'marginRight'))),
+    offsetWidth = el.offsetWidth
+
+  return marginLeft + offsetWidth + marginRight
+}
+
+
+Legend.defaultProps = {
+  legendContainer: {
+    container: document.getElementById('charting3'),
+    boundary: {
+      width: 1000,
+      height: 400
+    }
+  },
+  positionInfo: {
+    top: 20,
+    left: 50,
+    width: 600,
+    height: 300
+  },
+  width: {
+    legendWidth: 'auto',
+    statsWidth: 'auto',
+    lastWidth: 'auto',
+    minWidth: 'auto',
+    maxWidth: 'auto',
+    meanWidth: 'auto',
+    sdWidth: 'auto',
+    lzWidth: 'auto',
+    lpWidth: 'auto'
+  },
+  textArr: [
+    {
+      color: "#0077CC",
+      last: "Last:1114 on 16/04/2019",
+      legend: "Index Value, LOCAL, WGBI [L]",
+      stats: {
+        lp: "Percentile: 35",
+        lz: "Z-Score: 0",
+        max: "",
+        mean: "Mean: 4",
+        min: "Min: 4 on 29/03/2019",
+        sd: "Std. Dev.: 0",
+      }
+    },
+    {
+      color: "#B60000",
+      last: "Last: 752 on 24/04/2019",
+      legend: "Oil Price BRENT Index Data [L]",
+      stats: {
+        lp: "Percentile: 183",
+        lz: "Z-Score: -1",
+        max: "Max: 756 on 27/03/2019",
+        mean: "Mean: 747",
+        min: "Min: 741 on 03/04/2018",
+        sd: "Std. Dev.: 5"
+      }
+    }
+  ],
+  savePosInfo: () => {},
+  setLegend: () => {}
+}
+
+Legend.PropTypes = {
+  positionInfo: PropTypes.shape({
+    top: PropTypes.number,
+    left: PropTypes.number,
+    width: PropTypes.oneOf(['auto', PropTypes.number]),
+    height: PropTypes.oneOf(['auto', PropTypes.number])
+  }),
+  width: PropTypes.shape({
+    lastWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    minWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    maxWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    meanWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    sdWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    lzWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    lpWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    legendWidth: PropTypes.oneOf(['auto', PropTypes.number]),
+    statsWidth: PropTypes.oneOf(['auto', PropTypes.number])
+  }),
+  legendContainer: PropTypes.shape({
+    container: PropTypes.node,
+    boundary: PropTypes.objectOf({
+      width: PropTypes.number,
+      height: PropTypes.number
+    })
+  }),
+  textArr: PropTypes.shape({
+    color: PropTypes.string,
+    last: PropTypes.string,
+    legend: PropTypes.string,
+    stats: PropTypes.shape({
+      lp: PropTypes.string,
+      lz: PropTypes.string,
+      max: PropTypes.string,
+      mean: PropTypes.string,
+      min: PropTypes.string,
+      sd: PropTypes.string,
+    })
+  }),
+  savePosInfo: PropTypes.func,
+  setLegend: PropTypes.func
+}
+
+export default React.memo(Legend)
